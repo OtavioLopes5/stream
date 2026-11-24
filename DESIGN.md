@@ -28,6 +28,17 @@ Qualquer coisa que faça a música de quem assiste parar.
 - **Link fixo:** o ID fica salvo no navegador do PC, então o link é o mesmo de uma transmissão para outra.
 - **Rede bloqueada:** se a conexão direta falhar, o PeerJS usa o servidor de repasse grátis dele, que pode ser mais lento.
 
+## Câmera sobreposta (adicionado em 2026-11-24)
+- **O que é:** um botão "Câmera" na sua página liga e desliga a webcam a qualquer momento. É só vídeo: o microfone nunca é pedido.
+- **Como chega:** a câmera vai como um segundo vídeo, separado do da tela. A página de quem assiste mostra esse vídeo por cima da tela. Juntar os dois num vídeo só no seu PC foi descartado, porque o Chrome desacelera abas em segundo plano para uns 1 fps.
+- **Posição:** você define onde a câmera começa. Ao transmitir, sua página mostra uma prévia da tela, e você arrasta a câmera nela. Quem assiste pode arrastar depois, e a escolha dela vale até ela recarregar a página.
+- **Tamanho e coordenadas:** a câmera ocupa 25% da largura da tela, e a posição vai em proporção da imagem (0 a 1). Assim ela fica no mesmo lugar em qualquer tamanho de tela.
+- **Picture-in-picture:** mostra só a tela, porque o navegador só põe um vídeo na janela flutuante. Na tela cheia, a câmera aparece.
+
+## Celular
+- As duas páginas se ajustam a telas de celular. Arrastar funciona com o dedo, e os botões ficam fora das bordas e do entalhe do aparelho.
+- Transmitir a tela só funciona no computador (Chrome ou Edge), porque os navegadores de celular não capturam a tela. No celular, a página avisa isso.
+
 ## Hospedagem
 - GitHub Pages: grátis, sem cobrança por uso, e o vídeo não passa por lá. Quem tiver o link assiste enquanto você transmite. O ID é aleatório e longo, então ninguém o adivinha.
 - Descartados: Vercel (pedido seu) e artefato do Claude, que bloqueia captura de tela, WebRTC e conexão com servidores de fora.

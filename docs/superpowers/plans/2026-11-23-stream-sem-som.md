@@ -58,6 +58,26 @@
   - Stop the fake track (`track.stop()` + dispatch `ended`) → viewer shows "Transmissão pausada"; click "Transmitir" again → viewer gets video again (Review Focus 2).
 - [ ] **Step 4: Commit** — `git init`, then commit `index.html`, `DESIGN.md`, `docs/`, `.claude/launch.json`.
 
+### Task 3: Camera overlay + mobile layout (added 2026-11-24, spec: DESIGN.md "Câmera sobreposta" and "Celular")
+
+**Files:** Modify `index.html`.
+
+- Protocol:
+  - host → viewer: the state object `{live, cam, x, y}`, sent on connection open and on every change.
+  - viewer → host: `'want'`.
+  - The host answers each 'want' with one call per missing kind, `peer.call(id, stream, {metadata:{kind:'screen'|'cam'}})`. It skips a kind whose call is already open or was sent less than 5 s ago.
+  - The host no longer calls on its own when it starts. The state message makes viewers ask.
+- Camera: `getUserMedia({video:{…30 fps}, audio:false})`, sized at 25% of the stage width.
+- Positions are fractions (0–1) of the stage, clamped so the camera box stays inside.
+- `.stage` takes the screen video's aspect ratio, so the percentages line up on host and viewer. On the viewer the stage fits the viewport: `min(100vw, 100dvh × ratio)`.
+- Viewer: follows the host's position until the viewer drags the camera. Strips audio from both streams.
+- Check in the browser:
+  - the host's camera position appears in the viewer at the same fractions;
+  - after the viewer drags, host updates stop moving the camera;
+  - turning the camera off hides it on the viewer;
+  - neither viewer stream has an audio track;
+  - a 390×844 viewport shows the controls and the camera inside the screen, with no horizontal scroll.
+
 ### Task 2: GitHub Pages
 
 **Files:** none new (repo push only).

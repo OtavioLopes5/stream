@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Tela ao vivo</title>
 <style>
   :root {
@@ -14,22 +14,52 @@
   [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  button { font: inherit; border: 0; border-radius: 8px; padding: .65em 1.2em; background: var(--accent); color: #fff; cursor: pointer; }
+  button { font: inherit; border: 0; border-radius: 8px; padding: .65em 1.2em; background: var(--accent); color: #fff; cursor: pointer; touch-action: manipulation; }
   button.secondary { background: var(--panel); color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
-  #host { max-width: 560px; margin: 0 auto; padding: 48px 16px; display: grid; gap: 16px; }
-  h1 { margin: 0; font-size: 1.6rem; }
   p { margin: 0; }
   .dim { color: var(--dim); }
+
+  /* Host page: one column that fits any width. */
+  #host {
+    max-width: 760px; margin: 0 auto; display: grid; gap: 16px;
+    padding-block: max(32px, env(safe-area-inset-top)) max(32px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right));
+  }
+  h1 { margin: 0; font-size: 1.6rem; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  #link { flex: 1; min-width: 0; padding: .65em .8em; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 14px ui-monospace, Consolas, monospace; }
+  #link { flex: 1 1 220px; min-width: 0; padding: .65em .8em; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 14px ui-monospace, Consolas, monospace; }
   #hostStatus.live { color: var(--live); font-weight: 600; }
-  #viewer { position: fixed; inset: 0; background: #000; }
-  #video { width: 100%; height: 100%; object-fit: contain; display: block; }
-  #status { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: var(--dim); }
-  #controls { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 8px; }
+
+  /* Stage: a box with the screen video's exact aspect ratio, so the camera's position is a plain percentage. */
+  .stage { position: relative; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
+  .stage > video { width: 100%; height: 100%; display: block; object-fit: contain; }
+  #hostStage { border-radius: 8px; border: 1px solid var(--line); }
+  .cam {
+    position: absolute; left: 72%; top: 4%; width: 25%; min-width: 64px;
+    border-radius: 8px; overflow: hidden; background: #000; box-shadow: 0 2px 12px rgb(0 0 0 / .5);
+    cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .cam.dragging { cursor: grabbing; outline: 2px solid var(--accent); }
+  .cam video { width: 100%; display: block; pointer-events: none; }
+
+  /* Viewer page: the stage fills the screen without cropping, on desktop and phone. */
+  #viewer { position: fixed; inset: 0; background: #000; display: grid; place-items: center; overflow: hidden; }
+  #viewer .stage {
+    width: min(100vw, calc(100vh * var(--ar, 1.7778)));
+    width: min(100vw, calc(100dvh * var(--ar, 1.7778)));
+  }
+  #status { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: var(--dim); pointer-events: none; }
+  #controls {
+    position: absolute; display: flex; gap: 8px;
+    right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+  }
   #controls button { opacity: .7; }
   #controls button:hover, #controls button:focus-visible { opacity: 1; }
+  @media (max-width: 480px) {
+    #controls button { padding: .45em .8em; font-size: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -43,12 +73,22 @@
   <div class="row">
     <button id="start">Transmitir</button>
     <button id="stop" class="secondary" hidden>Parar</button>
+    <button id="camToggle" class="secondary">Ligar câmera</button>
   </div>
+  <p id="desktopOnly" class="dim" hidden>Para transmitir a tela, abra esta página no Chrome ou no Edge do computador.</p>
   <p id="hostStatus" class="dim" role="status">Conectando ao servidor…</p>
+  <div id="hostStage" class="stage" hidden>
+    <video id="preview" autoplay muted playsinline></video>
+    <div id="hostCam" class="cam" hidden><video id="camPreview" autoplay muted playsinline></video></div>
+  </div>
+  <p id="dragHint" class="dim" hidden>Arraste a câmera para onde ela deve aparecer para quem assiste.</p>
 </main>
 
 <div id="viewer" hidden>
-  <video id="video" autoplay muted playsinline></video>
+  <div id="stage" class="stage">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="camBox" class="cam" hidden><video id="camVideo" autoplay muted playsinline disablepictureinpicture></video></div>
+  </div>
   <p id="status" role="status">Conectando…</p>
   <div id="controls">
     <button id="pip" class="secondary" hidden>Janela flutuante</button>
@@ -61,6 +101,7 @@
 const RETRY_MS = 3000;
 const SERVER_ERRORS = ['network', 'server-error', 'socket-error', 'socket-closed'];
 const $ = id => document.getElementById(id);
+const unit = v => Math.min(Math.max(Number(v) || 0, 0), 1);
 const hostId = new URLSearchParams(location.search).get('v');
 if (hostId) watch(hostId); else broadcast();
 
@@ -83,39 +124,104 @@ function livePeer(id, setup) {
   setup(p);
 }
 
+// Stage takes the screen video's aspect ratio (see .stage in the CSS).
+function fitStage(stage, w, h) {
+  if (!w || !h) { w = 16; h = 9; }
+  stage.style.aspectRatio = w + ' / ' + h;
+  stage.style.setProperty('--ar', w / h);
+}
+
+const place = (box, x, y) => { box.style.left = unit(x) * 100 + '%'; box.style.top = unit(y) * 100 + '%'; };
+
+// Drag `box` inside `stage` with mouse or finger; reports its top-left corner as fractions of the stage.
+function draggable(box, stage, onMove) {
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    box.setPointerCapture(e.pointerId);
+    box.classList.add('dragging');
+    const s = stage.getBoundingClientRect(), b = box.getBoundingClientRect();
+    const dx = e.clientX - b.left, dy = e.clientY - b.top;
+    const maxX = Math.max(0, 1 - b.width / s.width), maxY = Math.max(0, 1 - b.height / s.height);
+    const move = ev => {
+      const x = Math.min(Math.max((ev.clientX - dx - s.left) / s.width, 0), maxX);
+      const y = Math.min(Math.max((ev.clientY - dy - s.top) / s.height, 0), maxY);
+      place(box, x, y);
+      onMove(x, y);
+    };
+    const up = () => {
+      box.classList.remove('dragging');
+      box.removeEventListener('pointermove', move);
+      box.removeEventListener('pointerup', up);
+      box.removeEventListener('pointercancel', up);
+    };
+    box.addEventListener('pointermove', move);
+    box.addEventListener('pointerup', up);
+    box.addEventListener('pointercancel', up);
+  });
+}
+
 function broadcast() {
   $('host').hidden = false;
   const id = streamId();
   const link = location.origin + location.pathname + '?v=' + id;
   $('link').value = link;
-  const viewers = new Map(); // open DataConnection -> its MediaConnection (null while not live)
-  let peer = null, stream = null, problem = '';
+  const canShare = !!navigator.mediaDevices?.getDisplayMedia;
+  $('start').disabled = !canShare;
+  $('desktopOnly').hidden = canShare;
+
+  // open DataConnection -> its calls, one per kind ('screen', 'cam'); null when not sent
+  const viewers = new Map();
+  let peer = null, screen = null, cam = null, problem = '';
+  let pos = { x: 0.72, y: 0.04 }; // camera's top-left corner, as fractions of the screen image
+
+  const state = () => ({ live: !!screen, cam: !!cam, x: pos.x, y: pos.y });
+  const tellAll = () => viewers.forEach((_, conn) => conn.open && conn.send(state()));
+
+  // Calls a viewer with each stream it lacks. A call that is open or was sent under 5 s ago counts as delivered.
+  const sendMissing = conn => {
+    const calls = viewers.get(conn);
+    if (!calls || !peer) return;
+    for (const [kind, stream] of [['screen', screen], ['cam', cam]]) {
+      const c = calls[kind];
+      if (!stream || (c && (c.open || Date.now() - c.sentAt < 5000))) continue;
+      c?.close();
+      calls[kind] = peer.call(conn.peer, stream, { metadata: { kind } });
+      if (calls[kind]) calls[kind].sentAt = Date.now();
+    }
+  };
+  const endAll = kind => viewers.forEach(calls => { calls[kind]?.close(); calls[kind] = null; });
 
   const render = () => {
     const n = viewers.size, who = n === 1 ? '1 pessoa' : n + ' pessoas';
     const el = $('hostStatus');
-    el.className = stream && !problem ? 'live' : 'dim';
+    el.className = screen && !problem ? 'live' : 'dim';
     el.textContent = problem
-      || (stream ? `● Ao vivo — ${who} assistindo`
+      || (screen ? `● Ao vivo — ${who} assistindo`
       : peer?.open ? `Pronto para transmitir — ${who} com o link aberto`
       : 'Conectando ao servidor…');
-    $('start').hidden = !!stream;
-    $('stop').hidden = !stream;
+    $('start').hidden = !!screen;
+    $('stop').hidden = !screen;
+    $('camToggle').textContent = cam ? 'Desligar câmera' : 'Ligar câmera';
+    $('hostStage').hidden = !screen && !cam;
+    $('preview').hidden = !screen;
+    $('hostCam').hidden = !cam;
+    $('dragHint').hidden = !cam;
+    place($('hostCam'), pos.x, pos.y);
   };
-  const sendTo = conn => viewers.set(conn, peer.call(conn.peer, stream));
 
   livePeer(id, p => {
     peer = p;
     p.on('open', () => { problem = ''; render(); });
     p.on('connection', conn => {
-      conn.on('open', () => { viewers.set(conn, null); render(); });
-      // The viewer asks until a call reaches it, so an offer lost on the signaling server is resent.
-      conn.on('data', msg => {
-        if (msg !== 'want' || !stream || viewers.get(conn)?.open) return;
-        viewers.get(conn)?.close();
-        sendTo(conn);
+      conn.on('open', () => { viewers.set(conn, { screen: null, cam: null }); conn.send(state()); render(); });
+      conn.on('data', msg => { if (msg === 'want') sendMissing(conn); });
+      conn.on('close', () => {
+        const calls = viewers.get(conn);
+        calls?.screen?.close();
+        calls?.cam?.close();
+        viewers.delete(conn);
+        render();
       });
-      conn.on('close', () => { viewers.get(conn)?.close(); viewers.delete(conn); render(); });
     });
     p.on('error', e => {
       if (e.type === 'unavailable-id') problem = 'Esta transmissão já está aberta em outra aba (ou acabou de ser fechada). Tentando de novo…';
@@ -125,29 +231,64 @@ function broadcast() {
     });
   });
 
+  $('preview').addEventListener('resize', () => fitStage($('hostStage'), $('preview').videoWidth, $('preview').videoHeight));
+  draggable($('hostCam'), $('hostStage'), (x, y) => { pos = { x, y }; tellAll(); });
+
   $('start').onclick = async () => {
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
+      screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
     } catch (e) {
       if (e.name !== 'NotAllowedError') { problem = 'Não deu para capturar a tela. Use o Chrome ou o Edge no computador.'; render(); }
       return;
     }
-    const track = stream.getVideoTracks()[0];
+    const track = screen.getVideoTracks()[0];
     track.contentHint = 'motion'; // Chrome keeps the frame rate and lowers resolution first
-    track.addEventListener('ended', stop); // "Parar de compartilhar" in Chrome's bar
+    track.addEventListener('ended', stopScreen); // "Parar de compartilhar" in Chrome's bar
+    $('preview').srcObject = screen;
     problem = '';
-    viewers.forEach((_, conn) => sendTo(conn));
+    tellAll(); // viewers answer with 'want', and get called then
     render();
   };
 
-  function stop() {
-    if (!stream) return;
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-    viewers.forEach((call, conn) => { call?.close(); viewers.set(conn, null); conn.send('stop'); });
+  function stopScreen() {
+    if (!screen) return;
+    screen.getTracks().forEach(t => t.stop());
+    screen = null;
+    $('preview').srcObject = null;
+    fitStage($('hostStage'));
+    endAll('screen');
+    tellAll();
     render();
   }
-  $('stop').onclick = stop;
+  $('stop').onclick = stopScreen;
+
+  $('camToggle').onclick = async () => {
+    if (cam) return stopCam();
+    try {
+      cam = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 30, max: 30 } }, audio: false });
+    } catch (e) {
+      problem = e.name === 'NotAllowedError'
+        ? 'A câmera foi bloqueada. Libere no ícone ao lado do endereço do site.'
+        : 'Não encontrei uma câmera neste computador.';
+      render();
+      return;
+    }
+    cam.getVideoTracks()[0].addEventListener('ended', stopCam);
+    $('camPreview').srcObject = cam;
+    problem = '';
+    tellAll();
+    render();
+  };
+
+  function stopCam() {
+    if (!cam) return;
+    cam.getTracks().forEach(t => t.stop());
+    cam = null;
+    $('camPreview').srcObject = null;
+    endAll('cam');
+    tellAll();
+    render();
+  }
 
   $('copy').onclick = () => navigator.clipboard.writeText(link)
     .then(() => { $('copy').textContent = 'Copiado!'; setTimeout(() => { $('copy').textContent = 'Copiar link'; }, 2000); })
@@ -156,21 +297,39 @@ function broadcast() {
 
 function watch(hostId) {
   $('viewer').hidden = false;
-  const video = $('video');
-  video.muted = true; // a muted, audio-less video never takes audio focus from the viewer's music
+  const video = $('video'), camVideo = $('camVideo'), camBox = $('camBox'), stage = $('stage');
+  video.muted = camVideo.muted = true; // muted, audio-less video never takes audio focus from the viewer's music
   if (navigator.audioSession) navigator.audioSession.type = 'ambient'; // iOS 17+: mix with, never pause, other apps' audio
   const say = text => { $('status').textContent = text; $('status').hidden = !text; };
-  let peer = null, conn = null, current = null, timer = 0;
+  const elFor = kind => kind === 'cam' ? camVideo : video;
+  const calls = { screen: null, cam: null };
+  let peer = null, conn = null, timer = 0, host = null, moved = false;
 
-  const show = stream => {
-    stream.getAudioTracks().forEach(t => { stream.removeTrack(t); t.stop(); });
-    video.srcObject = stream;
-    say('');
-    video.play().catch(() => say('Toque para assistir'));
+  const render = () => {
+    camBox.hidden = !camVideo.srcObject;
+    if (host && !moved) place(camBox, host.x, host.y);
   };
-  const blank = text => { current?.close(); current = null; video.srcObject = null; say(text); };
+  const show = (kind, stream) => {
+    stream.getAudioTracks().forEach(t => { stream.removeTrack(t); t.stop(); });
+    const el = elFor(kind);
+    el.srcObject = stream;
+    if (kind === 'screen') say('');
+    el.play().catch(() => say('Toque para assistir'));
+    render();
+  };
+  const drop = kind => {
+    const c = calls[kind];
+    calls[kind] = null;
+    c?.close();
+    elFor(kind).srcObject = null;
+    render();
+  };
+  const blank = text => { drop('screen'); drop('cam'); say(text); };
   const retry = () => { clearTimeout(timer); timer = setTimeout(dial, RETRY_MS); };
-  const want = () => { if (conn?.open && !current) conn.send('want'); };
+  // Ask the host for whatever it is sending that has not reached us yet.
+  const want = () => {
+    if (conn?.open && (!host || (host.live && !calls.screen) || (host.cam && !calls.cam))) conn.send('want');
+  };
   setInterval(want, RETRY_MS);
 
   function dial() {
@@ -178,9 +337,17 @@ function watch(hostId) {
     if (!peer || peer.disconnected) return retry();
     if (conn) { conn.removeAllListeners(); conn.close(); }
     conn = peer.connect(hostId);
-    conn.on('open', () => { if (!current) say('Aguardando transmissão…'); want(); });
-    conn.on('data', msg => { if (msg === 'stop') blank('Transmissão pausada.'); });
-    conn.on('close', () => { blank('Aguardando transmissão…'); retry(); });
+    conn.on('open', () => { if (!calls.screen) say('Aguardando transmissão…'); });
+    conn.on('data', msg => {
+      if (!msg || typeof msg !== 'object') return;
+      const wasLive = host?.live;
+      host = { live: !!msg.live, cam: !!msg.cam, x: unit(msg.x), y: unit(msg.y) };
+      if (!host.live) { drop('screen'); say(wasLive ? 'Transmissão pausada.' : 'Aguardando transmissão…'); }
+      if (!host.cam) drop('cam');
+      render();
+      want();
+    });
+    conn.on('close', () => { host = null; blank('Aguardando transmissão…'); retry(); });
     // A lost offer gets no error and no 'close', so dial again if this attempt never opens.
     const attempt = conn;
     setTimeout(() => { if (conn === attempt && !attempt.open) dial(); }, 15000);
@@ -188,12 +355,18 @@ function watch(hostId) {
 
   livePeer(null, p => {
     peer = p;
-    p.on('open', () => { if (conn?.open) say(current ? '' : 'Aguardando transmissão…'); else dial(); });
+    p.on('open', () => { if (conn?.open) say(calls.screen ? '' : 'Aguardando transmissão…'); else dial(); });
     p.on('call', call => {
-      current?.close();
-      current = call;
-      call.on('stream', show);
-      call.on('close', () => { if (current === call) blank('Transmissão pausada.'); });
+      const kind = call.metadata?.kind === 'cam' ? 'cam' : 'screen';
+      const old = calls[kind];
+      calls[kind] = call;
+      old?.close();
+      call.on('stream', s => { if (calls[kind] === call) show(kind, s); });
+      call.on('close', () => {
+        if (calls[kind] !== call) return;
+        drop(kind);
+        if (kind === 'screen') say('Transmissão pausada.');
+      });
       call.answer(); // no stream of our own: receive only
     });
     p.on('error', e => {
@@ -202,8 +375,15 @@ function watch(hostId) {
     });
   });
 
+  video.addEventListener('resize', () => fitStage(stage, video.videoWidth, video.videoHeight));
+  draggable(camBox, stage, () => { moved = true; }); // from now on the viewer's spot wins over the host's
+
   // iPhone Low Power Mode refuses autoplay even for muted video; a tap starts it, still muted.
-  $('viewer').onclick = () => { if (video.srcObject && video.paused) video.play().then(() => say(''), () => {}); };
+  $('viewer').onclick = () => {
+    for (const el of [video, camVideo]) {
+      if (el.srcObject && el.paused) el.play().then(() => { if (el === video) say(''); }, () => {});
+    }
+  };
 
   // Floating window, so the viewer can watch from inside another app (e.g. Spotify). iPhone uses the webkit API.
   if (document.pictureInPictureEnabled || video.webkitSupportsPresentationMode?.('picture-in-picture')) {
