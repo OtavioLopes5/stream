@@ -35,6 +35,8 @@
   #link { font: 14px ui-monospace, Consolas, monospace; }
   #login { position: absolute; inset: 0; margin: auto; height: fit-content; width: min(320px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
   #loginError { color: var(--live); }
+  #status { white-space: pre-line; }
+  #watchers { margin: 0; padding-left: 1.2em; overflow-wrap: anywhere; }
   #hostStatus.live { color: var(--live); font-weight: 600; }
 
   /* Stage: a box with the screen video's exact aspect ratio, so the camera's position is a plain percentage. */
@@ -73,7 +75,7 @@
   <p class="dim">Transmite só a imagem da sua tela, sem nenhum som. Quem assiste continua ouvindo a própria música.</p>
   <form id="settings" class="row">
     <input id="name" aria-label="Nome do link" placeholder="Nome do link" maxlength="40" autocomplete="off" spellcheck="false">
-    <input id="pass" type="password" aria-label="Senha da live" placeholder="Senha da live" maxlength="64" autocomplete="new-password">
+    <input id="pass" type="password" aria-label="Senha da live" placeholder="Senha da live (mín. 12 caracteres)" minlength="12" maxlength="64" autocomplete="new-password">
     <button id="save" class="secondary">Salvar</button>
   </form>
   <p class="dim">O link usa esse nome e fica igual em qualquer navegador ou PC. Para assistir, a pessoa precisa da senha.</p>
@@ -88,6 +90,7 @@
   </div>
   <p id="desktopOnly" class="dim" hidden>Para transmitir a tela, abra esta página no Chrome ou no Edge do computador.</p>
   <p id="hostStatus" class="dim" role="status">Conectando ao servidor…</p>
+  <ul id="watchers" aria-label="Quem está com o link aberto" hidden></ul>
   <div id="hostStage" class="stage" hidden>
     <video id="preview" autoplay muted playsinline></video>
     <div id="hostCam" class="cam" hidden><video id="camPreview" autoplay muted playsinline></video></div>
@@ -102,6 +105,8 @@
   </div>
   <p id="status" role="status">Conectando…</p>
   <form id="login" hidden>
+    <label for="nick">Seu nome</label>
+    <input id="nick" autocomplete="nickname" maxlength="30" required>
     <label for="viewerPass">Senha da live</label>
     <input id="viewerPass" type="password" autocomplete="current-password" required>
     <button>Entrar</button>
@@ -110,10 +115,12 @@
   <div id="controls">
     <button id="pip" class="secondary" hidden>Janela flutuante</button>
     <button id="fs" class="secondary" hidden>Tela cheia</button>
+    <button id="logout" class="secondary">Sair</button>
   </div>
 </div>
 
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<!-- integrity: the browser refuses the script if unpkg ever serves a changed file -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" integrity="sha384-nlUQ8ZqCbvStErob+biJNzSgltf6urV3VGqhfIfzhmg9RXmpeRm76ELw0pYnKlTR" crossorigin="anonymous"></script>
 <script>
 const RETRY_MS = 3000;
 const SERVER_ERRORS = ['network', 'server-error', 'socket-error', 'socket-closed'];
@@ -125,6 +132,16 @@ const cleanName = s => String(s || '').toLowerCase().normalize('NFD').replace(/[
   .replace(/[^a-z0-9_-]+/g, '-').replace(/[-_]{2,}/g, '-').replace(/^[-_]+|[-_]+$/g, '');
 const hostId = cleanName(new URLSearchParams(location.search).get('v'));
 if (hostId) watch(hostId); else broadcast();
+
+// The host's PeerJS id comes from the link name AND the password, so without the password nobody can reach the host,
+// see its IP, tell whether it is online, or take its id to collect viewers' passwords.
+// PBKDF2 makes each password guess slow.
+async function peerIdFor(name, pass) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(PEER_PREFIX + name), iterations: 300000 }, key, 128);
+  return PEER_PREFIX + [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // The link name, saved per browser; random until the host picks one.
 function streamId() {
@@ -186,17 +203,21 @@ function broadcast() {
   const id = streamId();
   const link = location.origin + location.pathname + '?v=' + id;
   $('link').value = link;
+  const MIN_PASS = 12; // short passwords can be guessed by trying ids on the PeerJS server
   let pass = '';
   try { pass = localStorage.getItem('stream-pass') || ''; } catch {}
+  if (pass.length < MIN_PASS) pass = '';
+  // Another tab of this page changed the name or password: this one must stop serving the old id.
+  addEventListener('storage', e => { if (e.key === 'stream-pass' || e.key === 'stream-id') location.reload(); });
   $('name').value = id;
   $('pass').value = pass;
   $('settings').onsubmit = e => {
     e.preventDefault();
     const name = cleanName($('name').value) || id;
-    const newPass = $('pass').value;
+    const newPass = $('pass').value.length >= MIN_PASS ? $('pass').value : '';
     try { localStorage.setItem('stream-id', name); localStorage.setItem('stream-pass', newPass); } catch {}
-    if (name !== id) return location.reload(); // simplest way to register the new name with the server
-    if (newPass !== pass) { pass = newPass; viewers.forEach((_, conn) => conn.close()); } // everyone enters again with the new one
+    // A new name or password is a new PeerJS id: reloading registers it, and drops everyone who had the old password.
+    if (name !== id || newPass !== pass) return location.reload();
     $('name').value = name;
     $('save').textContent = 'Salvo!';
     setTimeout(() => { $('save').textContent = 'Salvar'; }, 2000);
@@ -233,9 +254,12 @@ function broadcast() {
     el.className = screen && !problem ? 'live' : 'dim';
     el.textContent = problem
       || (screen ? `● Ao vivo — ${who} assistindo`
-      : !pass ? 'Escolha uma senha e clique em Salvar para poder transmitir.'
+      : !pass ? 'Escolha uma senha com pelo menos 12 caracteres e clique em Salvar para poder transmitir.'
       : peer?.open ? `Pronto para transmitir — ${who} com o link aberto`
       : 'Conectando ao servidor…');
+    // Nicknames come from viewers: plain text only, never markup.
+    $('watchers').replaceChildren(...[...viewers.values()].map(v => Object.assign(document.createElement('li'), { textContent: v.nick })));
+    $('watchers').hidden = !viewers.size;
     for (const el of $('settings').elements) el.disabled = !!screen; // renaming reloads the page, which would cut the stream
     $('start').disabled = !canShare || !pass;
     $('start').hidden = !!screen;
@@ -248,7 +272,7 @@ function broadcast() {
     place($('hostCam'), pos.x, pos.y);
   };
 
-  livePeer(PEER_PREFIX + id, p => {
+  if (pass) peerIdFor(id, pass).then(pid => livePeer(pid, p => {
     peer = p;
     p.on('open', () => { problem = ''; render(); });
     p.on('connection', conn => {
@@ -256,13 +280,13 @@ function broadcast() {
       conn.on('data', msg => {
         if (msg === 'want') return sendMissing(conn); // ignored until the viewer is in `viewers`
         if (!msg?.pass) return;
-        if (msg.pass !== pass) {
-          // shortcut: no lockout after many wrong tries, each costs a new connection; a long password is the defense
+        if (msg.pass !== pass) { // second check: reaching this id already took the password
           conn.send({ denied: true });
           setTimeout(() => conn.close(), 1000);
           return;
         }
-        if (!viewers.has(conn)) viewers.set(conn, { screen: null, cam: null });
+        const nick = String(msg.nick || '').replace(/\s+/g, ' ').trim().slice(0, 30) || 'Sem nome';
+        if (!viewers.has(conn)) viewers.set(conn, { screen: null, cam: null, nick });
         conn.send(state());
         render();
       });
@@ -275,12 +299,12 @@ function broadcast() {
       });
     });
     p.on('error', e => {
-      if (e.type === 'unavailable-id') problem = 'Este nome já está aberto em outra aba (ou acabou de ser fechado). Tentando de novo… Se não sair disso, troque o nome.';
+      if (e.type === 'unavailable-id') problem = 'Esta live já está aberta em outra aba (ou acabou de ser fechada). Tentando de novo…';
       else if (SERVER_ERRORS.includes(e.type)) problem = 'Sem conexão com o servidor. Tentando de novo…';
       else return; // e.g. a viewer left in the middle of a call
       render();
     });
-  });
+  }));
 
   $('preview').addEventListener('resize', () => fitStage($('hostStage'), $('preview').videoWidth, $('preview').videoHeight));
   draggable($('hostCam'), $('hostStage'), (x, y) => { pos = { x, y }; tellAll(); });
@@ -357,8 +381,10 @@ function watch(hostId) {
   const calls = { screen: null, cam: null };
   let peer = null, conn = null, timer = 0, host = null, moved = false;
   const PASS_KEY = 'pass:' + hostId;
-  let pass = '';
-  try { pass = localStorage.getItem(PASS_KEY) || ''; } catch {}
+  let pass = '', nick = '', target = null; // target: the host's PeerJS id, from the link name and the password
+  try { pass = localStorage.getItem(PASS_KEY) || ''; nick = localStorage.getItem('nick') || ''; } catch {}
+  // A wrong password looks exactly like the host being away: its id simply does not exist.
+  const WAITING = 'Aguardando transmissão…\nSe a senha mudou ou está errada, toque em Sair.';
 
   const render = () => {
     camBox.hidden = !camVideo.srcObject;
@@ -384,7 +410,7 @@ function watch(hostId) {
   // Until the host sends its state, send the password (again, in case it got lost); then ask for what has not arrived.
   const want = () => {
     if (!conn?.open) return;
-    if (!host) conn.send({ pass });
+    if (!host) conn.send({ pass, nick });
     else if ((host.live && !calls.screen) || (host.cam && !calls.cam)) conn.send('want');
   };
   setInterval(want, RETRY_MS);
@@ -392,38 +418,48 @@ function watch(hostId) {
   const askPass = error => {
     blank('');
     $('loginError').textContent = error || '';
+    $('nick').value = nick;
     $('login').hidden = false;
-    $('viewerPass').focus();
+    (nick ? $('viewerPass') : $('nick')).focus();
   };
   $('login').onsubmit = e => {
     e.preventDefault();
+    nick = $('nick').value.trim();
     pass = $('viewerPass').value;
-    if (!pass) return;
-    try { localStorage.setItem(PASS_KEY, pass); } catch {}
+    if (!nick || !pass) return;
+    try { localStorage.setItem('nick', nick); localStorage.setItem(PASS_KEY, pass); } catch {}
     $('viewerPass').value = '';
     $('login').hidden = true;
     say('Conectando…');
-    dial();
+    enter();
   };
-  if (!pass) askPass();
+  const enter = () => {
+    const tried = pass;
+    target = null;
+    peerIdFor(hostId, pass).then(t => { if (pass === tried) { target = t; dial(); } });
+  };
+  const hangUp = () => {
+    clearTimeout(timer); // a pending redial would otherwise reuse the old password's id
+    if (conn) { conn.removeAllListeners(); conn.close(); }
+    conn = host = target = null;
+    pass = '';
+    try { localStorage.removeItem(PASS_KEY); } catch {}
+  };
+  $('logout').onclick = () => { hangUp(); askPass(); };
+  if (!pass || !nick) askPass(); else enter();
 
   function dial() {
-    if (!pass) return askPass();
+    if (!pass || !nick) return askPass();
+    if (!target) return; // enter() dials once the id is ready
     // Not peer.open: after a reconnect the server may never resend OPEN, though signaling works.
     if (!peer || peer.disconnected) return retry();
     if (conn) { conn.removeAllListeners(); conn.close(); }
-    conn = peer.connect(PEER_PREFIX + hostId);
+    host = null; // a new connection starts unauthenticated: send the password again, not 'want'
+    conn = peer.connect(target);
     conn.on('open', () => { want(); if (!calls.screen) say('Aguardando transmissão…'); });
     conn.on('data', msg => {
       if (!msg || typeof msg !== 'object') return;
-      if (msg.denied) {
-        pass = '';
-        try { localStorage.removeItem(PASS_KEY); } catch {}
-        conn.removeAllListeners();
-        conn.close();
-        conn = host = null;
-        return askPass('Senha errada.');
-      }
+      if (msg.denied) { hangUp(); return askPass('Senha errada.'); }
       const wasLive = host?.live;
       host = { live: !!msg.live, cam: !!msg.cam, x: unit(msg.x), y: unit(msg.y) };
       if (!host.live) { drop('screen'); say(wasLive ? 'Transmissão pausada.' : 'Aguardando transmissão…'); }
@@ -431,7 +467,7 @@ function watch(hostId) {
       render();
       want();
     });
-    conn.on('close', () => { host = null; blank('Aguardando transmissão…'); retry(); });
+    conn.on('close', () => { host = null; blank(WAITING); retry(); });
     // A lost offer gets no error and no 'close', so dial again if this attempt never opens.
     const attempt = conn;
     setTimeout(() => { if (conn === attempt && !attempt.open) dial(); }, 15000);
@@ -441,6 +477,7 @@ function watch(hostId) {
     peer = p;
     p.on('open', () => { if (conn?.open) say(calls.screen ? '' : 'Aguardando transmissão…'); else dial(); });
     p.on('call', call => {
+      if (call.peer !== target) return call.close(); // only the host may send us video
       const kind = call.metadata?.kind === 'cam' ? 'cam' : 'screen';
       const old = calls[kind];
       calls[kind] = call;
@@ -454,7 +491,7 @@ function watch(hostId) {
       call.answer(); // no stream of our own: receive only
     });
     p.on('error', e => {
-      if (e.type === 'peer-unavailable') { blank('Aguardando transmissão…'); retry(); }
+      if (e.type === 'peer-unavailable' && !conn?.open) { blank(WAITING); retry(); } // when open, the error is from an older attempt
       else if (SERVER_ERRORS.includes(e.type)) say('Sem conexão com o servidor. Tentando de novo…');
     });
   });
