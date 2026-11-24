@@ -27,8 +27,9 @@ Qualquer coisa que faça a música de quem assiste parar.
 - **30 fps:** a captura é pedida a 30 fps, com dica "motion" e preferência por manter o fps. Se a internet apertar, cai a resolução, não o fps.
 - **Link fixo (atualizado em 2026-11-24):** você escolhe o nome do link (ex.: `?v=minha-live-4821`), e ele fica igual em qualquer navegador ou PC onde você digitar o mesmo nome. Sem nome escolhido, vale um código aleatório salvo no navegador. Por dentro, o ID no PeerJS ganha o prefixo `tela-ao-vivo-`, para não bater com outros apps que usam o mesmo servidor grátis.
 - **Senha:** você define a senha da live. Quem assiste digita a senha uma vez, e ela fica salva no navegador dela. Quem confere a senha é o seu PC: o vídeo só é enviado depois que ela está certa, então ninguém consegue burlar mexendo na página. Senha errada fecha a conexão. Sem senha definida, o botão Transmitir fica desativado.
-- **Privacidade:** a página pede para o Google e outros buscadores não indexarem (`noindex`) e não manda o endereço completo para outros sites (`no-referrer`). O código no GitHub é público, mas não tem nada secreto: nome e senha ficam só no navegador.
-- **Rede bloqueada:** se a conexão direta falhar, o PeerJS usa o servidor de repasse grátis dele, que pode ser mais lento.
+- **Privacidade:** a página pede para o Google e outros buscadores não indexarem (`noindex`) e não manda o endereço completo para outros sites (`no-referrer`). O código no GitHub é público, mas não tem nada secreto: nome e senha ficam só no navegador. Os commits usam o e-mail anônimo do GitHub.
+- **IP:** a conexão é direta, então quem souber o nome do link consegue ver o IP da sua internet (cidade e operadora aproximadas), mesmo sem a senha. Para esconder, use uma VPN enquanto transmite.
+- **Rede bloqueada:** não há repasse. Os servidores de repasse grátis do PeerJS (`eu-0` e `us-0.turn.peerjs.com`) estão fora do ar (testado em 2026-11-24). Se as duas redes forem muito fechadas, a imagem não chega.
 
 ## Câmera sobreposta (adicionado em 2026-11-24)
 - **O que é:** um botão "Câmera" na sua página liga e desliga a webcam a qualquer momento. É só vídeo: o microfone nunca é pedido.
