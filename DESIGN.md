@@ -25,7 +25,9 @@ Qualquer coisa que faça a música de quem assiste parar.
   - **Com `?v=<id>`: modo assistir.** O vídeo é `muted playsinline autoplay`, sem controles, com um botão de tela cheia. Enquanto não houver transmissão, aparece "Aguardando transmissão…" e a página tenta de novo a cada poucos segundos.
 - **Conexão:** quem assiste abre uma conexão de dados com o PC, e o PC liga de volta mandando só o vídeo.
 - **30 fps:** a captura é pedida a 30 fps, com dica "motion" e preferência por manter o fps. Se a internet apertar, cai a resolução, não o fps.
-- **Link fixo:** o ID fica salvo no navegador do PC, então o link é o mesmo de uma transmissão para outra.
+- **Link fixo (atualizado em 2026-11-24):** você escolhe o nome do link (ex.: `?v=minha-live-4821`), e ele fica igual em qualquer navegador ou PC onde você digitar o mesmo nome. Sem nome escolhido, vale um código aleatório salvo no navegador. Por dentro, o ID no PeerJS ganha o prefixo `tela-ao-vivo-`, para não bater com outros apps que usam o mesmo servidor grátis.
+- **Senha:** você define a senha da live. Quem assiste digita a senha uma vez, e ela fica salva no navegador dela. Quem confere a senha é o seu PC: o vídeo só é enviado depois que ela está certa, então ninguém consegue burlar mexendo na página. Senha errada fecha a conexão. Sem senha definida, o botão Transmitir fica desativado.
+- **Privacidade:** a página pede para o Google e outros buscadores não indexarem (`noindex`) e não manda o endereço completo para outros sites (`no-referrer`). O código no GitHub é público, mas não tem nada secreto: nome e senha ficam só no navegador.
 - **Rede bloqueada:** se a conexão direta falhar, o PeerJS usa o servidor de repasse grátis dele, que pode ser mais lento.
 
 ## Câmera sobreposta (adicionado em 2026-11-24)
@@ -40,7 +42,7 @@ Qualquer coisa que faça a música de quem assiste parar.
 - Transmitir a tela só funciona no computador (Chrome ou Edge), porque os navegadores de celular não capturam a tela. No celular, a página avisa isso.
 
 ## Hospedagem
-- GitHub Pages: grátis, sem cobrança por uso, e o vídeo não passa por lá. Quem tiver o link assiste enquanto você transmite. O ID é aleatório e longo, então ninguém o adivinha.
+- GitHub Pages: grátis, sem cobrança por uso, e o vídeo não passa por lá. Para assistir, é preciso o link e a senha.
 - Descartados: Vercel (pedido seu) e artefato do Claude, que bloqueia captura de tela, WebRTC e conexão com servidores de fora.
 
 ## Riscos
