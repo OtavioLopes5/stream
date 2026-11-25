@@ -247,6 +247,26 @@ function broadcast() {
     }
   };
   const endAll = kind => viewers.forEach(calls => { calls[kind]?.close(); calls[kind] = null; });
+  const forget = conn => {
+    const v = viewers.get(conn);
+    if (!v) return;
+    viewers.delete(conn); // first, so the 'close' that conn.close() may emit finds nothing left to do
+    v.screen?.close();
+    v.cam?.close();
+    conn.close();
+    render();
+  };
+  // PeerJS drops a connection only when ICE 'failed', but a phone that sleeps or switches network can sit in
+  // 'disconnected' forever, and each return adds a new entry. So: off the line for 10 s = gone.
+  // Picture-in-picture keeps ICE connected (the browser does it, not the page), so those viewers stay.
+  setInterval(() => {
+    const now = Date.now();
+    viewers.forEach((v, conn) => {
+      const ice = conn.peerConnection?.iceConnectionState;
+      if (conn.open && (ice === 'connected' || ice === 'completed')) v.lostAt = 0;
+      else if (now - (v.lostAt ||= now) > 10000) forget(conn);
+    });
+  }, RETRY_MS);
 
   const render = () => {
     const n = viewers.size, who = n === 1 ? '1 pessoa' : n + ' pessoas';
@@ -290,13 +310,7 @@ function broadcast() {
         conn.send(state());
         render();
       });
-      conn.on('close', () => {
-        const calls = viewers.get(conn);
-        calls?.screen?.close();
-        calls?.cam?.close();
-        viewers.delete(conn);
-        render();
-      });
+      conn.on('close', () => forget(conn));
     });
     p.on('error', e => {
       if (e.type === 'unavailable-id') problem = 'Esta live já está aberta em outra aba (ou acabou de ser fechada). Tentando de novo…';
